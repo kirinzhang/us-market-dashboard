@@ -1,0 +1,48 @@
+name: 测试
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths: ["src/**", "tests/**", "config/**", "requirements.txt"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+
+  # 用真实数据跑一遍（不发邮件、不提交），确认免费数据源都能拿到
+  live-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 真实数据试运行
+        env:
+          PYTHONPATH: src
+        run: python -m dashboard.build --force --no-email
+      - name: 结果摘要
+        run: |
+          python - <<'EOF'
+          import json
+          d = json.load(open("site/data/dashboard.json", encoding="utf-8"))
+          r = d["regime"]
+          print("行情日期", d["market_date"])
+          print("阶段", r["action"]["stage"], "| 叙事", r["narrative"]["state"], "| 流动性", r["liquidity"]["state"])
+          print("主题数", len(d["rotation"]["themes"]), "| 关注标的", len(d["watchlist"]), "| 期权", len(d["options"]))
+          print("警告:")
+          for w in d["warnings"]:
+              print("  -", w)
+          EOF
