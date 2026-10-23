@@ -1,0 +1,38 @@
+# 宏观事件日历。来源：
+#   FOMC：https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm （2027 年为暂定）
+#   CPI/非农/PPI：https://www.bls.gov/schedule/2026/home.htm
+# 每年初补充下一年的日期即可。财报日期由程序自动拉取。
+
+events:
+  - {date: 2026-10-28, name: "FOMC 利率决议", importance: high}
+  - {date: 2026-11-06, name: "非农就业（10月）", importance: high}
+  - {date: 2026-11-10, name: "CPI（10月）", importance: high}
+  - {date: 2026-11-13, name: "PPI（10月）", importance: medium}
+  - {date: 2026-12-04, name: "非农就业（11月）", importance: high}
+  - {date: 2026-12-09, name: "FOMC 利率决议 + 点阵图", importance: high}
+  - {date: 2026-12-10, name: "CPI（11月）", importance: high}
+  - {date: 2026-12-15, name: "PPI（11月）", importance: medium}
+  - {date: 2026-12-18, name: "季度期权到期（四重巫日）", importance: medium}
+  - {date: 2027-01-27, name: "FOMC 利率决议", importance: high}
+  - {date: 2027-03-17, name: "FOMC 利率决议 + 点阵图", importance: high}
+  - {date: 2027-04-28, name: "FOMC 利率决议", importance: high}
+  - {date: 2027-06-09, name: "FOMC 利率决议 + 点阵图", importance: high}
+  - {date: 2027-07-28, name: "FOMC 利率决议", importance: high}
+  - {date: 2027-09-15, name: "FOMC 利率决议 + 点阵图", importance: high}
+  - {date: 2027-10-27, name: "FOMC 利率决议", importance: high}
+  - {date: 2027-12-08, name: "FOMC 利率决议 + 点阵图", importance: high}
+
+# 纽交所休市日（这些日子不运行）
+market_holidays:
+  - 2026-11-26
+  - 2026-12-25
+  - 2027-01-01
+  - 2027-01-18
+  - 2027-02-15
+  - 2027-03-26
+  - 2027-05-31
+  - 2027-06-18
+  - 2027-07-05
+  - 2027-09-06
+  - 2027-11-25
+  - 2027-12-24

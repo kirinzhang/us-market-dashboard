@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>美股阶段仪表盘</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.1/echarts.min.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>美股阶段仪表盘</h1>
+      <p class="meta" id="meta">加载中…</p>
+    </div>
+    <nav>
+      <a href="#regime">阶段</a><a href="#macro">流动性</a><a href="#rotation">轮动</a>
+      <a href="#watch">标的</a><a href="#calendar">日历</a><a href="#log">日志</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="regime">
+      <div class="stage-card" id="stage"></div>
+      <div class="switches">
+        <div class="switch" id="sw-narrative"></div>
+        <div class="switch" id="sw-liquidity"></div>
+      </div>
+      <div class="hard" id="hard"></div>
+    </section>
+
+    <section id="macro">
+      <h2>宏观流动性</h2>
+      <div class="chart-row">
+        <div class="panel"><h3>净流动性 vs 标普500</h3><div class="chart" id="ch-netliq"></div></div>
+        <div class="panel"><h3>美债收益率曲线</h3><div class="chart" id="ch-curve"></div></div>
+      </div>
+      <div id="macro-groups"></div>
+      <div class="panel"><h3>市场宽度：站上均线的标普成分股比例</h3><div class="chart" id="ch-breadth"></div></div>
+    </section>
+
+    <section id="rotation">
+      <h2>资金轮动</h2>
+      <div class="panel">
+        <h3>主题强度排行 <span class="hint">数值为相对 SPY 的超额收益 %</span></h3>
+        <div class="table-wrap"><table id="tbl-themes"></table></div>
+      </div>
+      <div class="chart-row">
+        <div class="panel"><h3>相对轮动图 RRG（近 8 周轨迹）</h3><div class="chart tall" id="ch-rrg"></div></div>
+        <div class="panel">
+          <h3>行业板块 <span class="hint">超额收益 %</span></h3>
+          <div class="table-wrap"><table id="tbl-sectors"></table></div>
+          <h3 class="sub">风格比值 <span class="hint">涨跌 %</span></h3>
+          <div class="table-wrap"><table id="tbl-styles"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="watch">
+      <h2>关注标的</h2>
+      <div class="panel">
+        <div class="table-wrap"><table id="tbl-watch"></table></div>
+        <p class="hint">点击任意一行查看 K 线。</p>
+      </div>
+      <div class="panel" id="kline-panel" hidden>
+        <h3 id="kline-title"></h3>
+        <div class="chart tall" id="kline"></div>
+      </div>
+      <div class="panel">
+        <h3>期权快照 <span class="hint">约 2–6 周后到期的一期</span></h3>
+        <div class="table-wrap"><table id="tbl-options"></table></div>
+      </div>
+    </section>
+
+    <section id="calendar">
+      <h2>未来 14 天大事</h2>
+      <div class="panel"><ul class="events" id="events"></ul></div>
+    </section>
+
+    <section id="log">
+      <h2>信号日志</h2>
+      <div class="panel"><div class="table-wrap"><table id="tbl-log"></table></div></div>
+      <div class="warnings" id="warnings"></div>
+      <p class="hint">数据来自 FRED、Yahoo Finance、维基百科，免费数据可能有延迟或缺失。仅供参考，不构成投资建议。</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

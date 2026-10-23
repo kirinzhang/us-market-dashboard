@@ -1,0 +1,29 @@
+# 阶段判断的阈值。全部为初始值，待回测校准。
+
+liquidity:
+  net_liquidity_weeks: 13          # 净流动性看 13 周变化
+  hy_oas_widen_pp: 0.10            # HY 利差 20 个交易日走阔超过 0.10 个百分点算恶化
+  dxy_up_pct: 1.5                  # 美元指数 20 个交易日涨超 1.5% 算恶化
+
+hard_switches:
+  hy_oas_spike_pp: 1.00            # HY 利差 20 个交易日走阔 ≥ 1 个百分点
+  vix_term_inversion_days: 3       # VIX/VIX3M > 1 连续天数
+  breadth_floor_pct: 30            # 标普跌破 200 日线 且 站上 50 日线比例 < 30%
+  usdjpy_drop_pct: 4.0             # 美元/日元 5 日跌幅 ≥ 4%（套息平仓）
+
+narrative:
+  top_n: 5                         # 主题强度排名前 N 算主线
+  red_days_out_of_top: 10          # 跌出前 N 连续天数（红）
+  yellow_days_out_of_top: 5        # 跌出前 N 连续天数（黄）
+  crowding_yellow: 0.85            # 拥挤度 ≥ 该值为黄
+
+schedule:
+  timezone: "America/New_York"
+  slots:
+    premarket: "05:30"             # 开盘前 4 小时
+    postclose: "17:00"             # 收盘后 1 小时
+  early_minutes: 30                # 定时任务允许提前/延后的窗口
+  late_minutes: 55
+
+calendar:
+  lookahead_days: 14

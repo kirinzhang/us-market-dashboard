@@ -1,0 +1,76 @@
+# 关注标的配置。改这里即可，不需要改代码。
+# 代码用 Yahoo Finance 的写法（指数加 ^，期货加 =F）。
+
+benchmark: SPY
+
+indices:
+  - {ticker: "^GSPC", name: "标普500"}
+  - {ticker: "^NDX", name: "纳斯达克100"}
+  - {ticker: "^RUT", name: "罗素2000"}
+  - {ticker: "RSP", name: "标普500等权"}
+
+# 大盘 ETF（关注表的“大盘”分组）
+broad_etfs: [SPY, QQQ, IWM, RSP]
+
+macro_assets:
+  - {ticker: "DX-Y.NYB", name: "美元指数"}
+  - {ticker: "CL=F", name: "WTI 原油"}
+  - {ticker: "GC=F", name: "黄金"}
+  - {ticker: "HG=F", name: "铜"}
+  - {ticker: "BTC-USD", name: "比特币"}
+  - {ticker: "JPY=X", name: "美元/日元"}
+  - {ticker: "^VIX", name: "VIX"}
+  - {ticker: "^VIX3M", name: "VIX 3个月"}
+  - {ticker: "^MOVE", name: "MOVE 美债波动率"}
+
+sectors:
+  XLK: "信息技术"
+  XLC: "通信服务"
+  XLY: "可选消费"
+  XLP: "必需消费"
+  XLE: "能源"
+  XLF: "金融"
+  XLV: "医疗"
+  XLI: "工业"
+  XLB: "材料"
+  XLU: "公用事业"
+  XLRE: "房地产"
+
+# 风格比值：前者 / 后者，上升代表风险偏好走强
+styles:
+  - {num: "IWF", den: "IWD", name: "成长 / 价值"}
+  - {num: "IWM", den: "SPY", name: "小盘 / 大盘"}
+  - {num: "SPHB", den: "SPLV", name: "高 Beta / 低波"}
+  - {num: "XLY", den: "XLP", name: "可选 / 必需"}
+  - {num: "RSP", den: "SPY", name: "等权 / 市值加权"}
+
+# 主题篮子：等权计算。可以自由增删。
+themes:
+  "AI 算力": [NVDA, AVGO, AMD, TSM, MRVL, ANET, MU]
+  "AI 电力与数据中心": [VRT, ETN, CEG, VST, GEV, CIEN]
+  "半导体设备": [ASML, AMAT, LRCX, KLAC]
+  "AI 软件与应用": [PLTR, CRM, NOW, SNOW, DDOG, APP]
+  "云与超大厂": [MSFT, GOOGL, AMZN, META, ORCL]
+  "七巨头": [AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA]
+  "网络安全": [CRWD, PANW, ZS, FTNT, NET]
+  "加密资产链": [COIN, MSTR, HOOD]
+  "量子计算": [IONQ, RGTI, QBTS]
+  "核电": [CEG, VST, OKLO, SMR]
+  "国防军工": [LMT, RTX, NOC, GD, LHX]
+  "地区银行": [KRE]
+  "生物科技": [XBI]
+  "黄金矿业": [GDX]
+  "中概互联": [KWEB]
+  "小盘价值": [IWN]
+
+# 你当前持有的主线（叙事开关只看这些主题，第一个为主）
+holding_themes: ["AI 算力", "AI 电力与数据中心"]
+
+# 关注个股（AI 核心）
+watchlist: [NVDA, AVGO, TSM, AMD, MU, MSFT, META, GOOGL, AMZN, AAPL, TSLA, ORCL, PLTR, ANET, VRT, ASML]
+
+# 杠杆 ETF
+leveraged: [TQQQ, UPRO, SOXL, NVDL, TSLL, SQQQ, SOXS]
+
+# 期权链快照
+options: [SPY, QQQ, NVDA]
