@@ -26,6 +26,7 @@ def _download_chunk(tickers: list[str], period: str) -> pd.DataFrame:
                 group_by="column",
                 threads=True,
                 progress=False,
+                timeout=20,
             )
             if df is not None and not df.empty:
                 return df
@@ -41,6 +42,7 @@ def download_prices(tickers: list[str], period: str = "3y", chunk: int = 80) -> 
     frames: dict[str, list[pd.DataFrame]] = {f: [] for f in FIELDS}
     for i in range(0, len(tickers), chunk):
         part = tickers[i : i + chunk]
+        log.info("行情 %d-%d / %d", i + 1, i + len(part), len(tickers))
         df = _download_chunk(part, period)
         if not isinstance(df.columns, pd.MultiIndex):
             df.columns = pd.MultiIndex.from_product([df.columns, part])

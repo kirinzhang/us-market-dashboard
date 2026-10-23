@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
@@ -48,6 +49,26 @@ def col(df: pd.DataFrame | None, ticker: str) -> pd.Series | None:
         return None
     s = df[ticker].dropna()
     return s if not s.empty else None
+
+
+def call_with_timeout(fn, *args, timeout: float = 30):
+    """在后台线程里调用，超时就放弃（yfinance 的部分接口没有超时参数）。"""
+    result: dict = {}
+
+    def target():
+        try:
+            result["value"] = fn(*args)
+        except Exception as err:
+            result["error"] = err
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"{timeout:.0f} 秒未返回")
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
 
 
 def set_output(key: str, value: str):
@@ -319,7 +340,7 @@ def run(slot: str, send_email: bool) -> dict:
     market_total = (close * volume).sum(axis=1, min_count=1) if volume is not None else None
     try:
         log.info("拉取标普 500 成分股（市场宽度）…")
-        spx_members = fetch_market.sp500_constituents()
+        spx_members = call_with_timeout(fetch_market.sp500_constituents, timeout=40)
         sp = fetch_market.download_prices(spx_members, period="2y")
         breadth50 = ind.breadth(sp["Close"], 50)
         breadth200 = ind.breadth(sp["Close"], 200)
@@ -337,17 +358,20 @@ def run(slot: str, send_email: bool) -> dict:
     log.info("计算轮动…")
     rotation, inter = build_rotation(close, volume, universe, market_total, bench)
 
+    log.info("拉取财报日期…")
     earnings = {}
     for t in universe.get("watchlist", []):
         try:
-            earnings[t] = fetch_market.next_earnings(t)
+            earnings[t] = call_with_timeout(fetch_market.next_earnings, t, timeout=20)
         except Exception as err:
             log.info("财报日期 %s 获取失败：%s", t, err)
+    log.info("拉取期权快照…")
     options = []
     for t in universe.get("options", []):
         try:
             spot = col(close, t)
-            options.append(fetch_market.option_snapshot(t, float(spot.iloc[-1]) if spot is not None else None))
+            options.append(call_with_timeout(fetch_market.option_snapshot, t,
+                                             float(spot.iloc[-1]) if spot is not None else None, timeout=40))
         except Exception as err:
             warnings.append(f"{t} 期权快照失败：{err}")
 
