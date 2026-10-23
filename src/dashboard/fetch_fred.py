@@ -28,6 +28,8 @@ FRED_SERIES = {
     "NFCI": "芝加哥联储金融条件",
     "SOFR": "SOFR",
     "IORB": "准备金利率 IORB",
+    "DTWEXBGS": "广义美元指数（美元指数备用）",
+    "DEXJPUS": "美元/日元（备用）",
 }
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (us-market-dashboard)"}
@@ -35,7 +37,7 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (us-market-dashboard)"}
 
 def _fetch_csv(series_id: str, start: str) -> pd.Series:
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
-    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp = requests.get(url, headers=_HEADERS, timeout=20)
     resp.raise_for_status()
     df = pd.read_csv(io.StringIO(resp.text))
     date_col = df.columns[0]
@@ -62,21 +64,27 @@ def _fetch_api(series_id: str, start: str, key: str) -> pd.Series:
 def fetch_series(series_id: str, start: str) -> pd.Series:
     key = os.environ.get("FRED_API_KEY")
     last_err = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             return _fetch_api(series_id, start, key) if key else _fetch_csv(series_id, start)
         except Exception as err:  # 网络抖动重试
             last_err = err
-            time.sleep(2 * (attempt + 1))
+            time.sleep(3)
     raise RuntimeError(f"FRED {series_id} 拉取失败: {last_err}")
 
 
 def fetch_all(start: str) -> tuple[dict[str, pd.Series], list[str]]:
     data, warnings = {}, []
+    failures = 0
     for sid in FRED_SERIES:
+        if failures >= 3 and not data:
+            warnings.append("FRED 连续 3 个序列拉取失败，跳过其余序列")
+            break
         try:
             data[sid] = fetch_series(sid, start)
+            log.info("FRED %s：%d 条，最新 %s", sid, len(data[sid]), data[sid].index[-1].date())
         except Exception as err:
+            failures += 1
             log.warning("%s", err)
             warnings.append(str(err))
     return data, warnings

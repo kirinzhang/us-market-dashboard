@@ -1,4 +1,7 @@
-"""行情数据：yfinance（免费，非官方接口，做了分批和重试）。"""
+"""行情数据。
+
+美股和 ETF 优先用 Massive 官方 API（配置了 MASSIVE_API_KEY 时）；VIX/VIX3M 用 CBOE 官网 CSV；
+指数、期货、外汇、加密，以及上面拿不到的代码，用 yfinance 兜底（免费但非官方，偶尔不稳）。"""
 
 import io
 import logging
@@ -8,6 +11,8 @@ from datetime import date, datetime
 import pandas as pd
 import requests
 import yfinance as yf
+
+from . import fetch_massive
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +31,7 @@ def _download_chunk(tickers: list[str], period: str) -> pd.DataFrame:
                 group_by="column",
                 threads=True,
                 progress=False,
+                timeout=20,
             )
             if df is not None and not df.empty:
                 return df
@@ -36,11 +42,12 @@ def _download_chunk(tickers: list[str], period: str) -> pd.DataFrame:
     raise RuntimeError(f"yfinance 下载失败 {tickers[:3]}…: {last_err}")
 
 
-def download_prices(tickers: list[str], period: str = "3y", chunk: int = 80) -> dict[str, pd.DataFrame]:
+def yf_download_prices(tickers: list[str], period: str = "3y", chunk: int = 80) -> dict[str, pd.DataFrame]:
     """返回 {字段: DataFrame(日期 × 代码)}。下载失败的代码会被丢弃。"""
     frames: dict[str, list[pd.DataFrame]] = {f: [] for f in FIELDS}
     for i in range(0, len(tickers), chunk):
         part = tickers[i : i + chunk]
+        log.info("行情 %d-%d / %d", i + 1, i + len(part), len(tickers))
         df = _download_chunk(part, period)
         if not isinstance(df.columns, pd.MultiIndex):
             df.columns = pd.MultiIndex.from_product([df.columns, part])
@@ -60,6 +67,94 @@ def download_prices(tickers: list[str], period: str = "3y", chunk: int = 80) -> 
         valid = out["Close"].columns[out["Close"].notna().sum() > 20]
         out = {f: d.reindex(columns=valid) for f, d in out.items()}
     return out
+
+
+CBOE_INDICES = {"^VIX": "VIX", "^VIX3M": "VIX3M"}
+_CBOE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/{name}_History.csv"
+
+
+def parse_cboe_csv(text: str) -> pd.DataFrame:
+    df = pd.read_csv(io.StringIO(text))
+    df.columns = [c.strip().upper() for c in df.columns]
+    df.index = pd.to_datetime(df["DATE"], format="%m/%d/%Y")
+    out = df.rename(columns={"OPEN": "Open", "HIGH": "High", "LOW": "Low", "CLOSE": "Close"})
+    return out[["Open", "High", "Low", "Close"]].apply(pd.to_numeric, errors="coerce").sort_index()
+
+
+def cboe_index(ticker: str) -> pd.DataFrame:
+    resp = requests.get(_CBOE_URL.format(name=CBOE_INDICES[ticker]),
+                        headers={"User-Agent": "Mozilla/5.0 (us-market-dashboard)"}, timeout=20)
+    resp.raise_for_status()
+    return parse_cboe_csv(resp.text)
+
+
+def _merge(parts: list[dict[str, pd.DataFrame]]) -> dict[str, pd.DataFrame]:
+    out = {}
+    for f in FIELDS:
+        dfs = [p[f] for p in parts if f in p and not p[f].empty]
+        if dfs:
+            merged = pd.concat(dfs, axis=1)
+            out[f] = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+    return out
+
+
+def download_prices(tickers: list[str], period: str = "3y") -> dict[str, pd.DataFrame]:
+    """按数据源分流后合并，返回 {字段: DataFrame(日期 × 代码)}。每个代码用了哪个源记在 SOURCES 里。"""
+    years = int(period.rstrip("y"))
+    start = (pd.Timestamp.today() - pd.DateOffset(years=years)).date().isoformat()
+    parts: list[dict[str, pd.DataFrame]] = []
+    rest = list(tickers)
+
+    key = fetch_massive.api_key()
+    stock_like = [t for t in rest if fetch_massive.supports(t)]
+    if key and stock_like:
+        log.info("Massive 拉取 %d 个代码…", len(stock_like))
+        try:
+            got, failed = fetch_massive.download_prices(stock_like, start, key)
+            parts.append(got)
+            done = set(got.get("Close", pd.DataFrame()).columns)
+            SOURCES.update({t: "Massive" for t in done})
+            rest = [t for t in rest if t not in done]
+            if failed:
+                log.warning("Massive 未拿到 %d 个代码，改用 yfinance：%s", len(failed), "、".join(failed[:20]))
+        except Exception as err:
+            log.warning("Massive 整体失败，全部改用 yfinance：%s", err)
+            SOURCE_ERRORS.append(f"Massive 行情失败，已改用 yfinance：{err}")
+
+    for t in [t for t in rest if t in CBOE_INDICES]:
+        try:
+            df = cboe_index(t)
+            parts.append({f: df[[f]].rename(columns={f: t}) for f in df.columns})
+            SOURCES[t] = "CBOE"
+            rest.remove(t)
+        except Exception as err:
+            log.warning("CBOE %s 失败，改用 yfinance：%s", t, err)
+
+    if rest:
+        log.info("yfinance 拉取 %d 个代码…", len(rest))
+        try:
+            got = yf_download_prices(rest, period=period)
+            parts.append(got)
+            SOURCES.update({t: "yfinance" for t in got.get("Close", pd.DataFrame()).columns})
+        except Exception as err:
+            SOURCE_ERRORS.append(f"yfinance 行情失败：{err}")
+
+    out = _merge(parts)
+    if "Close" in out:
+        out = {f: d[d.index >= pd.Timestamp(start)] for f, d in out.items()}
+        valid = out["Close"].columns[out["Close"].notna().sum() > 20]
+        out = {f: d.reindex(columns=valid) for f, d in out.items()}
+    return out
+
+
+SOURCES: dict[str, str] = {}
+SOURCE_ERRORS: list[str] = []
+
+
+def align_to_trading_days(prices: dict[str, pd.DataFrame], benchmark: str) -> dict[str, pd.DataFrame]:
+    """只保留基准有收盘价的美股交易日。比特币等 7×24 资产会带来周末行和盘前空行，会把滚动窗口和涨跌幅算错。"""
+    days = prices["Close"].index[prices["Close"][benchmark].notna()]
+    return {f: d.reindex(days) for f, d in prices.items()}
 
 
 def sp500_constituents() -> list[str]:

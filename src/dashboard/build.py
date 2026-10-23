@@ -12,11 +12,12 @@ import json
 import logging
 import math
 import os
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from . import config, fetch_fred, fetch_market, indicators as ind, notify, regime
+from . import config, fetch_fred, fetch_market, fetch_massive, fetch_treasury, indicators as ind, notify, regime
 from .schedule import current_slot
 
 log = logging.getLogger("dashboard")
@@ -48,6 +49,26 @@ def col(df: pd.DataFrame | None, ticker: str) -> pd.Series | None:
         return None
     s = df[ticker].dropna()
     return s if not s.empty else None
+
+
+def call_with_timeout(fn, *args, timeout: float = 30):
+    """在后台线程里调用，超时就放弃（yfinance 的部分接口没有超时参数）。"""
+    result: dict = {}
+
+    def target():
+        try:
+            result["value"] = fn(*args)
+        except Exception as err:
+            result["error"] = err
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"{timeout:.0f} 秒未返回")
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
 
 
 def set_output(key: str, value: str):
@@ -129,6 +150,13 @@ def build_macro(fred: dict, close: pd.DataFrame, net_liq: pd.Series | None, brea
         idx_cards.append(ind.card(breadth200, "站上 200 日线比例", "%", "diff", "up_is_risk_on", 1))
     groups.append({"title": "美股指数与市场宽度", "cards": idx_cards})
     return groups
+
+
+def first_available(*series):
+    for s in series:
+        if s is not None and not s.dropna().empty:
+            return s
+    return None
 
 
 def build_yield_curve(fred: dict) -> dict:
@@ -303,13 +331,24 @@ def run(slot: str, send_email: bool) -> dict:
     log.info("拉取 FRED…")
     fred, w = fetch_fred.fetch_all(start)
     warnings += w
+    need = {"DGS3MO", "DGS2", "DGS10", "DGS30", "T10Y2Y", "T10Y3M", "DFII10"} - set(fred)
+    if need:
+        log.info("FRED 缺 %s，改用财政部官网补收益率…", "、".join(sorted(need)))
+        extra, w = fetch_treasury.fetch_yields(start, need)
+        fred.update(extra)
+        warnings += w
 
     log.info("拉取关注标的行情…")
     tickers = config.all_market_tickers(universe)
+    fetch_market.SOURCES.clear()
+    fetch_market.SOURCE_ERRORS.clear()
     prices = fetch_market.download_prices(tickers, period="3y")
-    close, volume = prices.get("Close"), prices.get("Volume")
-    if close is None or close.empty:
+    sources = {t: fetch_market.SOURCES.get(t) for t in tickers}
+    close = prices.get("Close")
+    if close is None or close.empty or universe["benchmark"] not in close.columns:
         raise RuntimeError("行情数据为空，终止")
+    prices = fetch_market.align_to_trading_days(prices, universe["benchmark"])
+    close, volume = prices.get("Close"), prices.get("Volume")
     missing = sorted(set(tickers) - set(close.columns))
     if missing:
         warnings.append("以下代码没有拿到行情：" + "、".join(missing))
@@ -319,14 +358,18 @@ def run(slot: str, send_email: bool) -> dict:
     market_total = (close * volume).sum(axis=1, min_count=1) if volume is not None else None
     try:
         log.info("拉取标普 500 成分股（市场宽度）…")
-        spx_members = fetch_market.sp500_constituents()
+        spx_members = call_with_timeout(fetch_market.sp500_constituents, timeout=40)
         sp = fetch_market.download_prices(spx_members, period="2y")
+        sp = {f: d.reindex(close.index.intersection(d.index)) for f, d in sp.items()}
         breadth50 = ind.breadth(sp["Close"], 50)
         breadth200 = ind.breadth(sp["Close"], 200)
         if "Volume" in sp:
             market_total = (sp["Close"] * sp["Volume"]).sum(axis=1, min_count=1)
     except Exception as err:
         warnings.append(f"市场宽度计算失败：{err}")
+    warnings += list(dict.fromkeys(fetch_market.SOURCE_ERRORS))
+    yf_used = sorted(t for t, src in sources.items() if src == "yfinance")
+    log.info("数据源：%s", {k: list(sources.values()).count(k) for k in set(sources.values())})
 
     net_liq = None
     try:
@@ -337,25 +380,31 @@ def run(slot: str, send_email: bool) -> dict:
     log.info("计算轮动…")
     rotation, inter = build_rotation(close, volume, universe, market_total, bench)
 
+    log.info("拉取财报日期…")
     earnings = {}
     for t in universe.get("watchlist", []):
         try:
-            earnings[t] = fetch_market.next_earnings(t)
+            earnings[t] = call_with_timeout(fetch_market.next_earnings, t, timeout=20)
         except Exception as err:
             log.info("财报日期 %s 获取失败：%s", t, err)
+    log.info("拉取期权快照…")
     options = []
     for t in universe.get("options", []):
         try:
             spot = col(close, t)
-            options.append(fetch_market.option_snapshot(t, float(spot.iloc[-1]) if spot is not None else None))
+            options.append(call_with_timeout(fetch_market.option_snapshot, t,
+                                             float(spot.iloc[-1]) if spot is not None else None, timeout=40))
         except Exception as err:
             warnings.append(f"{t} 期权快照失败：{err}")
 
     log.info("阶段判断…")
     liq = regime.evaluate_liquidity({
-        "net_liq": net_liq, "hy_oas": fred.get("BAMLH0A0HYM2"), "dxy": col(close, "DX-Y.NYB"),
-        "vix": col(close, "^VIX"), "vix3m": col(close, "^VIX3M"), "spx": col(close, "^GSPC"),
-        "breadth50": breadth50, "usdjpy": col(close, "JPY=X"),
+        "net_liq": net_liq, "hy_oas": fred.get("BAMLH0A0HYM2"),
+        # yfinance 拿不到时：美元指数用 FRED 广义美元指数，标普用 SPY，日元用 FRED 汇率（只看变化幅度，口径差异不影响）
+        "dxy": first_available(col(close, "DX-Y.NYB"), fred.get("DTWEXBGS")),
+        "vix": col(close, "^VIX"), "vix3m": col(close, "^VIX3M"),
+        "spx": first_available(col(close, "^GSPC"), bench),
+        "breadth50": breadth50, "usdjpy": first_available(col(close, "JPY=X"), fred.get("DEXJPUS")),
     }, settings)
     theme_evals = [regime.evaluate_theme(name, inter[name]["rank"], inter[name]["idx"], inter[name]["share20"],
                                          inter[name]["crowd"], settings)
@@ -369,6 +418,8 @@ def run(slot: str, send_email: bool) -> dict:
         "slot": slot,
         "market_date": close.index[-1].strftime("%Y-%m-%d"),
         "warnings": warnings,
+        "sources": {"by_ticker": sources, "yfinance": yf_used,
+                    "massive": bool(fetch_massive.api_key()), "fred_api": bool(os.environ.get("FRED_API_KEY"))},
         "regime": {"narrative": narr, "liquidity": liq, "action": action},
         "macro": build_macro(fred, close, net_liq, breadth50, breadth200),
         "charts": {

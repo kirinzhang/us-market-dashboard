@@ -24,6 +24,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       ran: ${{ steps.run.outputs.ran }}
     steps:
@@ -41,6 +42,7 @@ jobs:
         if: github.event_name != 'push'
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

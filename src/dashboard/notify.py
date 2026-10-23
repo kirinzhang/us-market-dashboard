@@ -54,8 +54,9 @@ def send(subject: str, body: str) -> bool:
     if not (user and password and to):
         log.info("未配置邮箱，跳过发送。主题：%s", subject)
         return False
-    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    port = int(os.environ.get("SMTP_PORT", "465"))
+    # 没填的 secret 在 Actions 里是空字符串，不能直接 int()
+    host = os.environ.get("SMTP_HOST") or "smtp.gmail.com"
+    port = int(os.environ.get("SMTP_PORT") or 465)
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = formataddr(("美股 Dashboard", user))
