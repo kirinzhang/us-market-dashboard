@@ -64,6 +64,12 @@ def download_prices(tickers: list[str], period: str = "3y", chunk: int = 80) -> 
     return out
 
 
+def align_to_trading_days(prices: dict[str, pd.DataFrame], benchmark: str) -> dict[str, pd.DataFrame]:
+    """只保留基准有收盘价的美股交易日。比特币等 7×24 资产会带来周末行和盘前空行，会把滚动窗口和涨跌幅算错。"""
+    days = prices["Close"].index[prices["Close"][benchmark].notna()]
+    return {f: d.reindex(days) for f, d in prices.items()}
+
+
 def sp500_constituents() -> list[str]:
     """标普 500 成分股（维基百科），用于计算市场宽度。"""
     html = requests.get(

@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from . import config, fetch_fred, fetch_market, indicators as ind, notify, regime
+from . import config, fetch_fred, fetch_market, fetch_treasury, indicators as ind, notify, regime
 from .schedule import current_slot
 
 log = logging.getLogger("dashboard")
@@ -324,13 +324,21 @@ def run(slot: str, send_email: bool) -> dict:
     log.info("拉取 FRED…")
     fred, w = fetch_fred.fetch_all(start)
     warnings += w
+    need = {"DGS3MO", "DGS2", "DGS10", "DGS30", "T10Y2Y", "T10Y3M", "DFII10"} - set(fred)
+    if need:
+        log.info("FRED 缺 %s，改用财政部官网补收益率…", "、".join(sorted(need)))
+        extra, w = fetch_treasury.fetch_yields(start, need)
+        fred.update(extra)
+        warnings += w
 
     log.info("拉取关注标的行情…")
     tickers = config.all_market_tickers(universe)
     prices = fetch_market.download_prices(tickers, period="3y")
-    close, volume = prices.get("Close"), prices.get("Volume")
-    if close is None or close.empty:
+    close = prices.get("Close")
+    if close is None or close.empty or universe["benchmark"] not in close.columns:
         raise RuntimeError("行情数据为空，终止")
+    prices = fetch_market.align_to_trading_days(prices, universe["benchmark"])
+    close, volume = prices.get("Close"), prices.get("Volume")
     missing = sorted(set(tickers) - set(close.columns))
     if missing:
         warnings.append("以下代码没有拿到行情：" + "、".join(missing))
@@ -342,6 +350,7 @@ def run(slot: str, send_email: bool) -> dict:
         log.info("拉取标普 500 成分股（市场宽度）…")
         spx_members = call_with_timeout(fetch_market.sp500_constituents, timeout=40)
         sp = fetch_market.download_prices(spx_members, period="2y")
+        sp = {f: d.reindex(close.index.intersection(d.index)) for f, d in sp.items()}
         breadth50 = ind.breadth(sp["Close"], 50)
         breadth200 = ind.breadth(sp["Close"], 200)
         if "Volume" in sp:

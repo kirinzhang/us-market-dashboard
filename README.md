@@ -29,7 +29,7 @@
    | `SMTP_PASSWORD` | Gmail 需要用[应用专用密码](https://myaccount.google.com/apppasswords)（要先开启两步验证），不是登录密码 |
    | `MAIL_TO` | 收件邮箱，多个用逗号分隔 |
    | `SMTP_HOST` / `SMTP_PORT` | 可选，默认 `smtp.gmail.com` / `465`。QQ 邮箱为 `smtp.qq.com` / `465`，密码填授权码 |
-   | `FRED_API_KEY` | 可选。不填也能用公开 CSV，填了更稳定，[免费申请](https://fred.stlouisfed.org/docs/api/api_key.html) |
+   | `FRED_API_KEY` | **强烈建议填**。GitHub Actions 的机器经常连不上 FRED 的公开 CSV，不填时净流动性、信用利差、SOFR 等会缺失（美债收益率会自动改用财政部官网）。[免费申请](https://fred.stlouisfed.org/docs/api/api_key.html) |
 
 3. **手动跑第一次**：Actions → “更新数据并部署” → Run workflow。几分钟后页面就有数据，并会收到一封“首次运行”邮件。
 
