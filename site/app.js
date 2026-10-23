@@ -253,7 +253,12 @@ async function main() {
   renderOptions(d.options);
   renderCalendar(d.calendar);
   renderLog(d.signal_log ?? []);
-  $("warnings").innerHTML = (d.warnings ?? []).map((w) => `<div>⚠ ${esc(w)}</div>`).join("");
+  const src = d.sources;
+  const srcLine = src
+    ? `<div>数据源：美股/ETF ${src.massive ? "Massive 官方 API" : "yfinance（未配置 MASSIVE_API_KEY）"}；宏观 ${src.fred_api ? "FRED API" : "FRED 公开 CSV（未配置 FRED_API_KEY）"}` +
+      (src.yfinance?.length ? `；用 yfinance 兜底的：${esc(src.yfinance.join("、"))}` : "") + `</div>`
+    : "";
+  $("warnings").innerHTML = srcLine + (d.warnings ?? []).map((w) => `<div>⚠ ${esc(w)}</div>`).join("");
   requestAnimationFrame(() => charts.forEach((c) => c.resize()));
 }
 main();

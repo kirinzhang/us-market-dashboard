@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from dashboard import fetch_market, fetch_treasury, notify
+from dashboard import fetch_market, fetch_massive, fetch_treasury, notify
 
 TREASURY_CSV = """Date,1 Mo,1.5 Month,2 Mo,3 Mo,4 Mo,6 Mo,1 Yr,2 Yr,3 Yr,5 Yr,7 Yr,10 Yr,20 Yr,30 Yr
 10/22/2026,4.10,4.08,4.05,4.00,3.95,3.90,3.80,3.50,3.55,3.70,3.85,4.10,4.50,4.60
@@ -55,3 +55,66 @@ def test_empty_smtp_port_uses_default(monkeypatch):
     monkeypatch.setattr(notify.smtplib, "SMTP_SSL", FakeSMTP)
     assert notify.send("t", "b")
     assert sent == {"host": "smtp.gmail.com", "port": 465}
+
+
+def _bars(n=30, base=100.0):
+    start = pd.Timestamp("2026-09-01", tz="America/New_York")
+    days = pd.bdate_range(start, periods=n)
+    return [{"t": int(d.tz_convert("UTC").timestamp() * 1000), "o": base, "h": base + 1, "l": base - 1,
+             "c": base + i, "v": 1000 + i} for i, d in enumerate(days)]
+
+
+def test_parse_massive_aggs_dates_are_et_trading_days():
+    df = fetch_massive.parse_aggs(_bars(3))
+    assert list(df.index) == list(pd.to_datetime(["2026-09-01", "2026-09-02", "2026-09-03"]))
+    assert list(df.columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert df["Close"].iloc[-1] == 102.0
+
+
+def test_massive_ticker_mapping():
+    assert fetch_massive.to_massive("BRK-B") == "BRK.B"
+    assert fetch_massive.supports("NVDA") and fetch_massive.supports("BRK-B")
+    assert not any(fetch_massive.supports(t) for t in ["^GSPC", "CL=F", "BTC-USD", "DX-Y.NYB", "JPY=X"])
+
+
+def test_router_uses_massive_then_cboe_then_yfinance(monkeypatch):
+    monkeypatch.setenv("MASSIVE_API_KEY", "k")
+    monkeypatch.setattr(fetch_massive, "daily_bars",
+                        lambda t, s, e, k: fetch_massive.parse_aggs(_bars()) if t != "DEAD" else pd.DataFrame())
+    vix = fetch_market.parse_cboe_csv("DATE,OPEN,HIGH,LOW,CLOSE\n" + "\n".join(
+        f"{d:%m/%d/%Y},15,16,14,15.5" for d in pd.bdate_range("2026-09-01", periods=30)))
+    monkeypatch.setattr(fetch_market, "cboe_index", lambda t: vix)
+    asked = []
+
+    def fake_yf(tickers, period):
+        asked.extend(tickers)
+        days = pd.bdate_range("2026-09-01", periods=30)
+        frame = pd.DataFrame(1.0, index=days, columns=tickers)
+        return {f: frame for f in fetch_market.FIELDS}
+
+    monkeypatch.setattr(fetch_market, "yf_download_prices", fake_yf)
+    fetch_market.SOURCES.clear()
+    out = fetch_market.download_prices(["SPY", "NVDA", "DEAD", "^VIX", "^GSPC"], period="1y")
+    assert sorted(asked) == ["DEAD", "^GSPC"]
+    assert fetch_market.SOURCES["NVDA"] == "Massive"
+    assert fetch_market.SOURCES["^VIX"] == "CBOE"
+    assert fetch_market.SOURCES["^GSPC"] == "yfinance"
+    assert set(out["Close"].columns) == {"SPY", "NVDA", "DEAD", "^VIX", "^GSPC"}
+
+
+def test_router_falls_back_when_massive_key_rejected(monkeypatch):
+    monkeypatch.setenv("MASSIVE_API_KEY", "bad")
+
+    def denied(*a):
+        raise fetch_massive.MassiveUnavailable("拒绝访问（403）")
+
+    monkeypatch.setattr(fetch_massive, "daily_bars", denied)
+    days = pd.bdate_range("2026-09-01", periods=30)
+    monkeypatch.setattr(fetch_market, "yf_download_prices",
+                        lambda tickers, period: {f: pd.DataFrame(1.0, index=days, columns=tickers) for f in fetch_market.FIELDS})
+    fetch_market.SOURCES.clear()
+    fetch_market.SOURCE_ERRORS.clear()
+    out = fetch_market.download_prices(["SPY", "NVDA"], period="1y")
+    assert set(out["Close"].columns) == {"SPY", "NVDA"}
+    assert fetch_market.SOURCES["SPY"] == "yfinance"
+    assert any("Massive" in e for e in fetch_market.SOURCE_ERRORS)

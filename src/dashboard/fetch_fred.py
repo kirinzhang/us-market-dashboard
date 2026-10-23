@@ -28,6 +28,8 @@ FRED_SERIES = {
     "NFCI": "芝加哥联储金融条件",
     "SOFR": "SOFR",
     "IORB": "准备金利率 IORB",
+    "DTWEXBGS": "广义美元指数（美元指数备用）",
+    "DEXJPUS": "美元/日元（备用）",
 }
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (us-market-dashboard)"}

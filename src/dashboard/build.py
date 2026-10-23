@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from . import config, fetch_fred, fetch_market, fetch_treasury, indicators as ind, notify, regime
+from . import config, fetch_fred, fetch_market, fetch_massive, fetch_treasury, indicators as ind, notify, regime
 from .schedule import current_slot
 
 log = logging.getLogger("dashboard")
@@ -150,6 +150,13 @@ def build_macro(fred: dict, close: pd.DataFrame, net_liq: pd.Series | None, brea
         idx_cards.append(ind.card(breadth200, "站上 200 日线比例", "%", "diff", "up_is_risk_on", 1))
     groups.append({"title": "美股指数与市场宽度", "cards": idx_cards})
     return groups
+
+
+def first_available(*series):
+    for s in series:
+        if s is not None and not s.dropna().empty:
+            return s
+    return None
 
 
 def build_yield_curve(fred: dict) -> dict:
@@ -333,7 +340,10 @@ def run(slot: str, send_email: bool) -> dict:
 
     log.info("拉取关注标的行情…")
     tickers = config.all_market_tickers(universe)
+    fetch_market.SOURCES.clear()
+    fetch_market.SOURCE_ERRORS.clear()
     prices = fetch_market.download_prices(tickers, period="3y")
+    sources = {t: fetch_market.SOURCES.get(t) for t in tickers}
     close = prices.get("Close")
     if close is None or close.empty or universe["benchmark"] not in close.columns:
         raise RuntimeError("行情数据为空，终止")
@@ -357,6 +367,9 @@ def run(slot: str, send_email: bool) -> dict:
             market_total = (sp["Close"] * sp["Volume"]).sum(axis=1, min_count=1)
     except Exception as err:
         warnings.append(f"市场宽度计算失败：{err}")
+    warnings += list(dict.fromkeys(fetch_market.SOURCE_ERRORS))
+    yf_used = sorted(t for t, src in sources.items() if src == "yfinance")
+    log.info("数据源：%s", {k: list(sources.values()).count(k) for k in set(sources.values())})
 
     net_liq = None
     try:
@@ -386,9 +399,12 @@ def run(slot: str, send_email: bool) -> dict:
 
     log.info("阶段判断…")
     liq = regime.evaluate_liquidity({
-        "net_liq": net_liq, "hy_oas": fred.get("BAMLH0A0HYM2"), "dxy": col(close, "DX-Y.NYB"),
-        "vix": col(close, "^VIX"), "vix3m": col(close, "^VIX3M"), "spx": col(close, "^GSPC"),
-        "breadth50": breadth50, "usdjpy": col(close, "JPY=X"),
+        "net_liq": net_liq, "hy_oas": fred.get("BAMLH0A0HYM2"),
+        # yfinance 拿不到时：美元指数用 FRED 广义美元指数，标普用 SPY，日元用 FRED 汇率（只看变化幅度，口径差异不影响）
+        "dxy": first_available(col(close, "DX-Y.NYB"), fred.get("DTWEXBGS")),
+        "vix": col(close, "^VIX"), "vix3m": col(close, "^VIX3M"),
+        "spx": first_available(col(close, "^GSPC"), bench),
+        "breadth50": breadth50, "usdjpy": first_available(col(close, "JPY=X"), fred.get("DEXJPUS")),
     }, settings)
     theme_evals = [regime.evaluate_theme(name, inter[name]["rank"], inter[name]["idx"], inter[name]["share20"],
                                          inter[name]["crowd"], settings)
@@ -402,6 +418,8 @@ def run(slot: str, send_email: bool) -> dict:
         "slot": slot,
         "market_date": close.index[-1].strftime("%Y-%m-%d"),
         "warnings": warnings,
+        "sources": {"by_ticker": sources, "yfinance": yf_used,
+                    "massive": bool(fetch_massive.api_key()), "fred_api": bool(os.environ.get("FRED_API_KEY"))},
         "regime": {"narrative": narr, "liquidity": liq, "action": action},
         "macro": build_macro(fred, close, net_liq, breadth50, breadth200),
         "charts": {
