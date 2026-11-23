@@ -47,3 +47,15 @@ def test_diff_states():
     changes = notify.diff_states(prev, cur)
     assert any("流动性开关" in c for c in changes)
     assert any("硬性风控开关触发" in c for c in changes)
+
+
+def test_call_with_timeout():
+    import time
+
+    import pytest
+
+    from dashboard.build import call_with_timeout
+
+    assert call_with_timeout(lambda x: x + 1, 1, timeout=5) == 2
+    with pytest.raises(TimeoutError):
+        call_with_timeout(time.sleep, 3, timeout=0.2)
