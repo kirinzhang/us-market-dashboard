@@ -1,8 +1,10 @@
 {
-  "time": "2026-10-23 03:36 UTC",
-  "slot": "manual",
-  "stage": "谨慎持有",
-  "narrative": "yellow",
-  "liquidity": "green",
-  "hard": []
+  "time": "2026-11-23 22:04 UTC",
+  "slot": "postclose",
+  "stage": "清仓",
+  "narrative": "red",
+  "liquidity": "red",
+  "hard": [
+    "VIX 期限结构倒挂 ≥ 3 天"
+  ]
 }
